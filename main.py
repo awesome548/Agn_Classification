@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-
+import os
 import sys
 import numpy as np
 import re
@@ -33,16 +32,17 @@ class PafEntry:
             self.qr_en = self.qr_len
             self.is_fwd=self.rf_name=self.rf_len=self.rf_st=self.rf_en=self.match_num=self.aln_len=self.qual=None
 
-        self.tags = dict() if tags==None else tags 
-        for k,t,v in (s.split(":") for s in tabs[12:]):
-            if t == 'f':
-                v = float(v)
-            elif t == 'i':
-                v = int(v)
-            elif t not in ['A', 'Z','B', 'H']:
-                sys.stderr.write("Error: invalid tag type \"%s\"\n" % t)
-                sys.exit(1)
-            self.tags[k] = (v,t)
+        self.tag = tags
+        #self.tags = dict() if tags==None else tags 
+        #for k,t,v in (s.split(":") for s in tabs[12:]):
+            #if t == 'f':
+                #v = float(v)
+            #elif t == 'i':
+                #v = int(v)
+            #elif t not in ['A', 'Z','B', 'H']:
+                #sys.stderr.write("Error: invalid tag type \"%s\"\n" % t)
+                #sys.exit(1)
+            #self.tags[k] = (v,t)
 
     def rev(self):
         return PafEntry( [self.rf_name, self.rf_len, self.rf_st, self.rf_en, self.is_fwd, 
@@ -78,7 +78,7 @@ class PafEntry:
         else:
             return (max(1, self.rf_st - en_shift),
                     min(self.rf_len, self.rf_en + st_shift))
-    
+    """
     def overlaps(self, paf2, ext=0.0):
         st1, en1 = self.ext_ref(ext)
         st2, en2 = paf2.ext_ref(ext)
@@ -88,6 +88,7 @@ class PafEntry:
     def contains(self, paf2):
         return (self.is_mapped and paf2.is_mapped and self.rf_name.startswith(paf2.rf_name) and 
                 self.rf_st <= paf2.rf_st and self.rf_en >= paf2.rf_en)
+    """
 
     def __lt__(self, paf2):
         return self.qr_name < self.qr_name
@@ -106,15 +107,15 @@ class PafEntry:
         return s
 
 
-def parse_paf(infile, max_load=None):
-    if isinstance(infile, str):
+def parse_paf(infiles, max_load=None,flag=False):
+    for infile in infiles:
+        flag = True if "correct" in infile else False
         infile = open(infile)
-    c = 0
-    for l in infile:
-        if l[0] == "#": continue
-        if max_load != None and c >= max_load: break
-        yield PafEntry(l)
-        c += 1
+        for l in infile:
+            #print(l)
+            if l[0] == "#": continue
+            if max_load != None and c >= max_load: break
+            yield PafEntry(l,flag)
 
 def paf_ref_compare(qry, ref, ret_qry=True, check_locs=True, ext=1.5):
     if type(ref) == dict:
@@ -156,51 +157,92 @@ def paf_ref_compare(qry, ref, ret_qry=True, check_locs=True, ext=1.5):
                 fn.append(q if ret_qry else rs[0])
 
     return tp, tn, fp, fn, fp_unmap
+def fasta_id(fasta):
+    f=open(fasta,'r')
+    lines=f.readlines()
+
+    hre=re.compile('>(\S+)')
+    id = []
+    for line in lines:
+            outh = hre.search(line)
+            if outh:
+                    id.append(outh.group(1))
+    return id
+
+def evaluation(qry, fasta):
+
+    tp = list()
+    tn = list()
+    fp = list()
+    fn = list()
+    for q in qry:
+        if q.is_mapped:
+            if q.rf_name in fasta:
+                tp.append(q)
+            else:
+                fp.append(q)
+        else:
+            if q.tag:
+                fn.append(q)
+            else:
+                tn.append(q)
+
+    return tp, tn, fp, fn
+
+def extract_id(fasta):
+    f = open(fasta,'r')
+    lines = f.readlines()
+    hre = re.compile('>(\S+)')
+    outh = hre.search(lines[0])
+    if outh:
+        print(outh.group(1)) 
+    return outh.group(1)
+
 
 def add_opts(parser):
     parser.add_argument("infile", type=str, help="PAF file output by UNCALLED")
+    parser.add_argument("-p","--pafpath", type=str, help="PAF file output by UNCALLED")
+    parser.add_argument("-f","--fastapath", type=str, help="fasta file")
     parser.add_argument("-n", "--max-reads", required=False, type=int, default=None, help="Will only look at first n reads if specified")
     parser.add_argument("-r", "--ref-paf", required=False, type=str, default=None, help="Reference PAF file. Will output percent true/false positives/negatives with respect to reference. Reads not mapped in reference PAF will be classified as NA.")
     parser.add_argument("-a", "--annotate", action='store_true', help="Should be used with --ref-paf. Will output an annotated version of the input with T/P F/P specified in an 'rf' tag")
 
 def run(args):
-    locs = [p for p in parse_paf(args.infile, args.max_reads)]
-
-    num_mapped = sum([p.is_mapped for p in locs])
-
+    # paf instance generated
     statsout = sys.stderr if args.annotate else sys.stdout
 
-    statsout.write("Summary: %d reads, %d mapped (%.2f%%)\n\n" % (len(locs), num_mapped, 100*num_mapped/len(locs)))
+    statsout.write("Classification Result\n")
+    if isinstance(args.pafpath, str) and isinstance(args.fastapath,str) and os.path.exists(args.pafpath) and os.path.exists(args.fastapath):
+        paf_path = args.pafpath
+        fasta_path = args.fastapath
+    else:
+        FileNotFoundError
 
-    if args.ref_paf != None:
-        statsout.write("Comparing to reference PAF\n")
-        tp, tn, fp, fn, fp_unmap = paf_ref_compare(locs, parse_paf(args.ref_paf))
-        ntp,ntn,nfp,nfn,nfp_unmap = map(len, [tp, tn, fp, fn, fp_unmap])
-        n = len(locs)
+    # loading paf&fasta files' path
+    files = os.listdir(paf_path)
+    paf_list = [os.path.join(paf_path,f) for f in files if os.path.isfile(os.path.join(paf_path,f))]
+    files = os.listdir(fasta_path)
+    fasta = [os.path.join(fasta_path,f) for f in files if os.path.isfile(os.path.join(fasta_path,f)) and args.infile in f]
+    if len(fasta) == 1:
+        fasta = fasta[0]
+    else:
+        NotImplementedError
 
-        statsout.write("     P     N\n")
-        statsout.write("T %6.2f %5.2f\n" % (100*ntp/n, 100*ntn/n))
-        statsout.write("F %6.2f %5.2f\n" % (100*(nfp)/n, 100*nfn/n))
-        statsout.write("NA: %.2f\n\n" % (100*nfp_unmap/n))
+    locs = [p for p in parse_paf(paf_list)]
+    num_mapped = sum([p.is_mapped for p in locs])
+    print(num_mapped)
+    fasta = fasta_id(fasta)
+    #print(fasta)
+    tp, tn, fp, fn  = evaluation(locs,fasta)
+    ntp,ntn,nfp,nfn = map(len, [tp, tn, fp, fn])
+    n = len(locs)
 
-        if args.annotate:
-            group_labels = [(tp, "tp"), 
-                            (tn, "tn"), 
-                            (fp, "fp"),
-                            (fn, "fn"),
-                            (fp_unmap, "na")]
+    statsout.write("     P     N\n")
+    statsout.write("T %6.2f %5.2f\n" % (100*ntp/n, 100*ntn/n))
+    statsout.write("F %6.2f %5.2f\n" % (100*(nfp)/n, 100*nfn/n))
 
-            for grp,lab in group_labels:
-                for p in grp:
-                    p.set_tag("rf", lab, "Z")
-                    sys.stdout.write("%s\n" % p)
+if __name__=='__main__':
+    parser = argparse.ArgumentParser(description='evaluation of alignment tool')
+    add_opts(parser)
+    run(parser.parse_args())
 
-    if locs[0].get_tag('mt') != None:
-        map_ms = np.array([p.get_tag('mt') for p in locs if p.is_mapped])
-        map_bp = np.array([p.qr_en for p in locs if p.is_mapped])
-        map_bpps = 1000*map_bp/map_ms
-
-        statsout.write("Speed            Mean    Median\n")
-        statsout.write("BP per sec: %9.2f %9.2f\n" % (np.mean(map_bpps), np.median(map_bpps)))
-        statsout.write("BP mapped:  %9.2f %9.2f\n" % (np.mean(map_bp),   np.median(map_bp)))
-        statsout.write("MS to map:  %9.2f %9.2f\n" % (np.mean(map_ms),   np.median(map_ms)))
