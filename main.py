@@ -78,17 +78,6 @@ class PafEntry:
         else:
             return (max(1, self.rf_st - en_shift),
                     min(self.rf_len, self.rf_en + st_shift))
-    """
-    def overlaps(self, paf2, ext=0.0):
-        st1, en1 = self.ext_ref(ext)
-        st2, en2 = paf2.ext_ref(ext)
-        return (self.is_mapped and paf2.is_mapped and self.rf_name.startswith(paf2.rf_name) and 
-                max(st1, st2) <= min(en1, en2))
-
-    def contains(self, paf2):
-        return (self.is_mapped and paf2.is_mapped and self.rf_name.startswith(paf2.rf_name) and 
-                self.rf_st <= paf2.rf_st and self.rf_en >= paf2.rf_en)
-    """
 
     def __lt__(self, paf2):
         return self.qr_name < self.qr_name
@@ -107,14 +96,13 @@ class PafEntry:
         return s
 
 
-def parse_paf(infiles, max_load=None,flag=False):
+def parse_paf(infiles,flag=False):
     for infile in infiles:
         flag = True if "correct" in infile else False
         infile = open(infile)
         for l in infile:
             #print(l)
             if l[0] == "#": continue
-            if max_load != None and c >= max_load: break
             yield PafEntry(l,flag)
 
 def paf_ref_compare(qry, ref, ret_qry=True, check_locs=True, ext=1.5):
@@ -230,16 +218,20 @@ def run(args):
 
     locs = [p for p in parse_paf(paf_list)]
     num_mapped = sum([p.is_mapped for p in locs])
-    print(num_mapped)
     fasta = fasta_id(fasta)
     #print(fasta)
     tp, tn, fp, fn  = evaluation(locs,fasta)
     ntp,ntn,nfp,nfn = map(len, [tp, tn, fp, fn])
-    n = len(locs)
+    n = len(locs) 
+    statsout.write("Summary: %d reads, %d mapped (%.2f%%)\n\n" % (len(locs), num_mapped, 100*num_mapped/len(locs)))
 
     statsout.write("     P     N\n")
     statsout.write("T %6.2f %5.2f\n" % (100*ntp/n, 100*ntn/n))
     statsout.write("F %6.2f %5.2f\n" % (100*(nfp)/n, 100*nfn/n))
+
+    statsout.write("     P     N\n")
+    statsout.write("T %d %d\n" % (ntp, ntn))
+    statsout.write("F %d %d\n" % (nfp, nfn))
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='evaluation of alignment tool')
