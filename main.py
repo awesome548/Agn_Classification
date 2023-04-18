@@ -15,6 +15,7 @@ class PafEntry:
         self.qr_name = tabs[0]
         self.qr_len = int(tabs[1])
         self.is_mapped = tabs[4] != ("*" if fromstr else None)
+        self.label = tabs[-1]
 
         if self.is_mapped:
             self.qr_st = int(tabs[2])
@@ -96,14 +97,13 @@ class PafEntry:
         return s
 
 
-def parse_paf(infiles,flag=False):
+def parse_paf(infiles):
     for infile in infiles:
-        flag = True if "correct" in infile else False
         infile = open(infile)
         for l in infile:
             #print(l)
             if l[0] == "#": continue
-            yield PafEntry(l,flag)
+            yield PafEntry(l)
 
 def paf_ref_compare(qry, ref, ret_qry=True, check_locs=True, ext=1.5):
     if type(ref) == dict:
@@ -157,7 +157,7 @@ def fasta_id(fasta):
                     id.append(outh.group(1))
     return id
 
-def evaluation(qry, fasta):
+def evaluation(qry, fasta,result):
 
     tp = list()
     tn = list()
@@ -165,26 +165,30 @@ def evaluation(qry, fasta):
     fn = list()
     for q in qry:
         if q.is_mapped:
-            if q.rf_name in fasta:
+            l = int(q.label)
+            if q.rf_name in fasta[l]:
+                result[l][l] += 1
                 tp.append(q)
             else:
                 fp.append(q)
+                result[l][find_pos(fasta,q.rf_name)] +=1
         else:
             if q.tag:
                 fn.append(q)
             else:
                 tn.append(q)
 
-    return tp, tn, fp, fn
+    return tp, tn, fp, fn, result
 
-def extract_id(fasta):
-    f = open(fasta,'r')
-    lines = f.readlines()
-    hre = re.compile('>(\S+)')
-    outh = hre.search(lines[0])
-    if outh:
-        print(outh.group(1)) 
-    return outh.group(1)
+def find_pos(fasta,name):
+    for y,row in enumerate(fasta):
+        try:
+            row.index(name)
+            pos = y
+            break
+        except ValueError:
+            pass
+    return pos
 
 
 def add_opts(parser):
@@ -210,28 +214,33 @@ def run(args):
     files = os.listdir(paf_path)
     paf_list = [os.path.join(paf_path,f) for f in files if os.path.isfile(os.path.join(paf_path,f))]
     files = os.listdir(fasta_path)
-    fasta = [os.path.join(fasta_path,f) for f in files if os.path.isfile(os.path.join(fasta_path,f)) and args.infile in f]
-    if len(fasta) == 1:
-        fasta = fasta[0]
-    else:
-        NotImplementedError
+    fasta_list = [os.path.join(fasta_path,f) for f in files if os.path.isfile(os.path.join(fasta_path,f))]
+    n_class = len(fasta_list)
 
+    fasta_ids = []
+    for f in fasta_list:
+        fasta_ids.append(fasta_id(f)) 
     locs = [p for p in parse_paf(paf_list)]
     num_mapped = sum([p.is_mapped for p in locs])
-    fasta = fasta_id(fasta)
-    #print(fasta)
-    tp, tn, fp, fn  = evaluation(locs,fasta)
+
+    print(fasta_ids)
+    print(len(fasta_ids))
+    result = np.zeros((n_class,n_class))
+
+    tp, tn, fp, fn, result  = evaluation(locs,fasta_ids,result)
     ntp,ntn,nfp,nfn = map(len, [tp, tn, fp, fn])
     n = len(locs) 
     statsout.write("Summary: %d reads, %d mapped (%.2f%%)\n\n" % (len(locs), num_mapped, 100*num_mapped/len(locs)))
 
-    statsout.write("     P     N\n")
-    statsout.write("T %6.2f %5.2f\n" % (100*ntp/n, 100*ntn/n))
-    statsout.write("F %6.2f %5.2f\n" % (100*(nfp)/n, 100*nfn/n))
+    #statsout.write("     P     N\n")
+    #statsout.write("T %6.2f %5.2f\n" % (100*ntp/n, 100*ntn/n))
+    #statsout.write("F %6.2f %5.2f\n" % (100*(nfp)/n, 100*nfn/n))
 
     statsout.write("     P     N\n")
-    statsout.write("T %d %d\n" % (ntp, ntn))
-    statsout.write("F %d %d\n" % (nfp, nfn))
+    statsout.write("T  %d  %d\n" % (ntp, ntn))
+    statsout.write("F  %d  %d\n" % (nfp, nfn))
+
+    print(result)
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='evaluation of alignment tool')
