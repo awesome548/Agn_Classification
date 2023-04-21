@@ -208,12 +208,16 @@ def run(args):
         paf_path = args.pafpath
         fasta_path = args.fastapath
     else:
-        FileNotFoundError
+        raise FileNotFoundError
 
     # loading paf&fasta files' path
     files = os.listdir(paf_path)
+    files.sort()
+    print(files)
     paf_list = [os.path.join(paf_path,f) for f in files if os.path.isfile(os.path.join(paf_path,f))]
     files = os.listdir(fasta_path)
+    files.sort()
+    print(files)
     fasta_list = [os.path.join(fasta_path,f) for f in files if os.path.isfile(os.path.join(fasta_path,f))]
     n_class = len(fasta_list)
 
