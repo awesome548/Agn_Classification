@@ -25,8 +25,9 @@ def main():
 
     for file,out in zip(txt_files,out_all):
         for idx,fasta in enumerate(fasta_all):
-            print(f'uncalled map -t 16 {txt_dir}{fasta} {txt_dir}{file} > PAF/{out}_{idx}.paf')
-            subprocess.run(f'uncalled map -t 16 {txt_dir}{fasta} {txt_dir}{file} > PAF/{out}_{idx}.paf',shell=True, text=True)
+            print(f'uncalled map -t 16 {txt_dir}{fasta} {txt_dir}{file} > paf/{out}_{idx}.paf')
+            subprocess.run(f'uncalled map -t 16 {txt_dir}{fasta} {txt_dir}{file} > paf/{out}_{idx}.paf',shell=True, text=True)
+            
             #print(out.stdout)
         #print(tmp)
         #print(fasta)
