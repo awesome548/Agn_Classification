@@ -3,7 +3,10 @@ import sys
 import numpy as np
 import re
 import argparse
-
+import subprocess
+import math
+def convertToNumber (s):
+    return int.from_bytes(s.encode(), 'little')
 class PafEntry:
     def __init__(self, line, tags):
         fromstr = type(line) != list
@@ -34,34 +37,11 @@ class PafEntry:
             self.is_fwd=self.rf_name=self.rf_len=self.rf_st=self.rf_en=self.match_num=self.aln_len=self.qual=None
 
         self.tag = tags
-        #self.tags = dict() if tags==None else tags 
-        #for k,t,v in (s.split(":") for s in tabs[12:]):
-            #if t == 'f':
-                #v = float(v)
-            #elif t == 'i':
-                #v = int(v)
-            #elif t not in ['A', 'Z','B', 'H']:
-                #sys.stderr.write("Error: invalid tag type \"%s\"\n" % t)
-                #sys.exit(1)
-            #self.tags[k] = (v,t)
-
+    
     def rev(self):
         return PafEntry( [self.rf_name, self.rf_len, self.rf_st, self.rf_en, self.is_fwd, 
                           self.qr_name, self.qr_len, self.qr_st, self.qr_en, self.match_num,
                           self.aln_len, self.qual], self.tags )
-
-    def get_tag(self, k):
-        return self.tags.get(k, (None,None))[0]
-    
-    def set_tag(self, k, v, t=None):
-        if t == None:
-            if isinstance(v, int):
-                t = 'i'
-            elif isinstance(v, float):
-                t = 'f'
-            else:
-                t = 'Z'
-        self.tags[k] = (v,t)
 
     def qry_loc(self):
         return (self.qr_name, self.qr_st, self.qr_en)
@@ -80,8 +60,6 @@ class PafEntry:
             return (max(1, self.rf_st - en_shift),
                     min(self.rf_len, self.rf_en + st_shift))
 
-    def __lt__(self, paf2):
-        return self.qr_name < self.qr_name
 
     def __str__(self):
         tagstr = "\t".join( (":".join([k,v[1],str(v[0])]) for k,v in self.tags.items()))
@@ -96,15 +74,27 @@ class PafEntry:
 
         return s
 
+def len_paf(infile):
+    infile = open(infile)
+    count = 0
+    for i in infile:count+=1
+    return count
 
-def parse_paf(infiles):
+def parse_paf_single(infile,idx,cls):
+    infile = open(infile)
+    data=infile.readlines()
+    data.sort()
+    for d in data:
+        yield PafEntry(d,idx%cls)
+
+def parse_paf(infiles,cls):
     for idx,infile in enumerate(infiles):
         infile = open(infile)
-        print("idx : %d",idx)
+        #print("idx : %d",idx)
         for l in infile:
             #print(l)
             if l[0] == "#": continue
-            yield PafEntry(l,idx%5)
+            yield PafEntry(l,idx%cls)
 
 def fasta_id(fasta):
     f=open(fasta,'r')
@@ -118,8 +108,18 @@ def fasta_id(fasta):
                     id.append(outh.group(1))
     return id
 
-def evaluation(qry, fasta,result):
+def evaluation_BE(qry, fasta,record):
+    #print(qry)
+    for idx,q in enumerate(qry):
+        #print(convertToNumber(q.qr_name))
+        if q.is_mapped:
+            leng = abs(q.qr_en - q.qr_st)
+            if record[idx][1] < leng:
+                record[idx][0] = find_pos(fasta,q.rf_name)
+                record[idx][1] = leng           
+    return record
 
+def evaluation(qry, fasta,result):
     tp = list()
     tn = list()
     fp = list()
@@ -161,9 +161,11 @@ def add_opts(parser):
     parser.add_argument("-a", "--annotate", action='store_true', help="Should be used with --ref-paf. Will output an annotated version of the input with T/P F/P specified in an 'rf' tag")
 
 def run(args):
-    # paf instance generated
+    ### Variable
     statsout = sys.stderr if args.annotate else sys.stdout
+    cls = 5
 
+    #### File Path Check
     statsout.write("Classification Result\n")
     if isinstance(args.pafpath, str) and isinstance(args.fastapath,str) and os.path.exists(args.pafpath) and os.path.exists(args.fastapath):
         paf_path = args.pafpath
@@ -171,41 +173,59 @@ def run(args):
     else:
         raise FileNotFoundError
 
-    # loading paf&fasta files' path
+    ### Loading PAF&FASTA Files' Path
     files = os.listdir(paf_path)
     files.sort()
-    print(files)
     paf_list = [os.path.join(paf_path,f) for f in files if os.path.isfile(os.path.join(paf_path,f))]
     files = os.listdir(fasta_path)
     files.sort()
-    print(files)
     fasta_list = [os.path.join(fasta_path,f) for f in files if os.path.isfile(os.path.join(fasta_path,f))]
     n_class = len(fasta_list)
-
     fasta_ids = []
     for f in fasta_list:
         fasta_ids.append(fasta_id(f)) 
-    locs = [p for p in parse_paf(paf_list)]
+    print(fasta_ids)
+
+    ### Paf Entry
+    locs = [p for p in parse_paf(paf_list,cls)]
     num_mapped = sum([p.is_mapped for p in locs])
 
-    print(fasta_ids)
-    print(len(fasta_ids))
     result = np.zeros((n_class,n_class))
+    n = len(locs) 
+    ### Break Even ###
+    record = np.array([0])
+    for idx, paf in enumerate(paf_list):
+        print(idx)
+        print(paf)
+        qries = [p for p in parse_paf_single(paf,idx%cls,cls)]
+        if idx % cls == 0:
+            ids = len_paf(paf)
+            record = np.zeros((ids,2))
+            evaluation_BE(qries,fasta_ids,record)
+        else:
+            if len(record) == 1: raise NotImplementedError
+            evaluation_BE(qries,fasta_ids,record)
+            if idx % cls == cls-1:
+                row = idx//cls
+                for clm in range(len(result[row])):
+                    result[row][clm] = np.count_nonzero(record == clm,axis=0)[0]
 
+    ### NO Break Even ###
+    """
     tp, tn, fp, fn, result  = evaluation(locs,fasta_ids,result)
     ntp,ntn,nfp,nfn = map(len, [tp, tn, fp, fn])
-    n = len(locs) 
+    """
     statsout.write("Summary: %d reads, %d mapped (%.2f%%)\n\n" % (len(locs), num_mapped, 100*num_mapped/len(locs)))
-
     #statsout.write("     P     N\n")
     #statsout.write("T %6.2f %5.2f\n" % (100*ntp/n, 100*ntn/n))
     #statsout.write("F %6.2f %5.2f\n" % (100*(nfp)/n, 100*nfn/n))
 
-    statsout.write("     P     N\n")
-    statsout.write("T  %d  %d\n" % (ntp, ntn))
-    statsout.write("F  %d  %d\n" % (nfp, nfn))
+    #statsout.write("     P     N\n")
+    #statsout.write("T  %d  %d\n" % (ntp, ntn))
+    #statsout.write("F  %d  %d\n" % (nfp, nfn))
 
     print(result)
+    print(np.sum(result,axis=0))
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='evaluation of alignment tool')
