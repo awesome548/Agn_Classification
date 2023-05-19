@@ -30,7 +30,7 @@ def main():
     os.chdir('/z/kiku/Basecaller/minimap2')
     for file,out in zip(txt_files,out_all):
         for idx,fasta in enumerate(fasta_all):
-            subprocess.run(f'./minimap2 --paf-no-hit {fasta_dir}{fasta} {txt_dir}{file} > {work_dir}/paf/{out}_{idx}.paf',shell=True,text=True)
+            subprocess.run(f'./minimap2 --secondary=no --paf-no-hit {fasta_dir}{fasta} {txt_dir}{file} > {work_dir}/paf/{out}_{idx}.paf',shell=True,text=True)
             
             #print(out.stdout)
         #print(tmp)

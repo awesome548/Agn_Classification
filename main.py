@@ -8,12 +8,7 @@ import math
 def convertToNumber (s):
     return int.from_bytes(s.encode(), 'little')
 class PafEntry:
-    def __init__(self, line, tags):
-        fromstr = type(line) != list
-        if fromstr:
-            tabs = line.split()
-        else:
-            tabs = line
+    def __init__(self, tabs, tags,fromstr):
 
         self.qr_name = tabs[0]
         self.qr_len = int(tabs[1])
@@ -37,9 +32,9 @@ class PafEntry:
             self.is_fwd=self.rf_name=self.rf_len=self.rf_st=self.rf_en=self.match_num=self.aln_len=self.qual=None
 
         self.tag = tags
-    
+
     def rev(self):
-        return PafEntry( [self.rf_name, self.rf_len, self.rf_st, self.rf_en, self.is_fwd, 
+        return PafEntry( [self.rf_name, self.rf_len, self.rf_st, self.rf_en, self.is_fwd,
                           self.qr_name, self.qr_len, self.qr_st, self.qr_en, self.match_num,
                           self.aln_len, self.qual], self.tags )
 
@@ -65,9 +60,9 @@ class PafEntry:
         tagstr = "\t".join( (":".join([k,v[1],str(v[0])]) for k,v in self.tags.items()))
         if self.is_mapped:
             s = "%s\t%d\t%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%s" % (
-                 self.qr_name, self.qr_len, self.qr_st, self.qr_en, 
-                 '+' if self.is_fwd else '-', self.rf_name, 
-                 self.rf_len, self.rf_st, self.rf_en, 
+                 self.qr_name, self.qr_len, self.qr_st, self.qr_en,
+                 '+' if self.is_fwd else '-', self.rf_name,
+                 self.rf_len, self.rf_st, self.rf_en,
                  self.match_num, self.aln_len, self.qual, tagstr)
         else:
             s = "\t".join((self.qr_name,str(self.qr_len)) + ("*",)*10 + (tagstr,))
@@ -84,17 +79,31 @@ def parse_paf_single(infile,idx,cls):
     infile = open(infile)
     data=infile.readlines()
     data.sort()
+    past = ""
     for d in data:
-        yield PafEntry(d,idx%cls)
+        fromstr = type(d) != list
+        if fromstr:
+            tabs = d.split()
+        else:
+            tabs = d
+        if tabs[0] != past:
+            yield PafEntry(tabs,idx%cls,fromstr)
+            past = tabs[0]
 
 def parse_paf(infiles,cls):
     for idx,infile in enumerate(infiles):
         infile = open(infile)
+        past = ""
         #print("idx : %d",idx)
         for l in infile:
-            #print(l)
-            if l[0] == "#": continue
-            yield PafEntry(l,idx%cls)
+            fromstr = type(l) != list
+            if fromstr:
+                tabs = l.split()
+            else:
+                tabs = l
+            if tabs[0] != past:
+                yield PafEntry(tabs,idx%cls,fromstr)
+                past = tabs[0]
 
 def fasta_id(fasta):
     f=open(fasta,'r')
@@ -116,7 +125,7 @@ def evaluation_BE(qry, fasta,record):
             leng = abs(q.qr_en - q.qr_st)
             if record[idx][1] < leng:
                 record[idx][0] = find_pos(fasta,q.rf_name)
-                record[idx][1] = leng           
+                record[idx][1] = leng
     return record
 
 def evaluation(qry, fasta,result):
@@ -154,8 +163,9 @@ def find_pos(fasta,name):
 
 def add_opts(parser):
     #parser.add_argument("infile", type=str, help="PAF file output by UNCALLED")
-    parser.add_argument("-p","--pafpath", type=str, help="PAF file output by UNCALLED")
-    parser.add_argument("-f","--fastapath", type=str, help="fasta file")
+    parser.add_argument("-p","--pafpath", type=str,required=True, help="PAF file output by UNCALLED")
+    parser.add_argument("-f","--fastapath", type=str,required=True, help="fasta file")
+    parser.add_argument("-c","--classes", type=int,required=True, help="num of classes")
     parser.add_argument("-n", "--max-reads", required=False, type=int, default=None, help="Will only look at first n reads if specified")
     parser.add_argument("-r", "--ref-paf", required=False, type=str, default=None, help="Reference PAF file. Will output percent true/false positives/negatives with respect to reference. Reads not mapped in reference PAF will be classified as NA.")
     parser.add_argument("-a", "--annotate", action='store_true', help="Should be used with --ref-paf. Will output an annotated version of the input with T/P F/P specified in an 'rf' tag")
@@ -163,7 +173,7 @@ def add_opts(parser):
 def run(args):
     ### Variable
     statsout = sys.stderr if args.annotate else sys.stdout
-    cls = 5
+    cls = args.classes
 
     #### File Path Check
     statsout.write("Classification Result\n")
@@ -183,20 +193,20 @@ def run(args):
     n_class = len(fasta_list)
     fasta_ids = []
     for f in fasta_list:
-        fasta_ids.append(fasta_id(f)) 
+        fasta_ids.append(fasta_id(f))
     print(fasta_ids)
 
     ### Paf Entry
     locs = [p for p in parse_paf(paf_list,cls)]
     num_mapped = sum([p.is_mapped for p in locs])
 
-    result = np.zeros((n_class,n_class))
-    n = len(locs) 
+    result = np.zeros((n_class,n_class),dtype=np.int16)
+    n = len(locs)
     ### Break Even ###
     record = np.array([0])
     for idx, paf in enumerate(paf_list):
-        print(idx)
-        print(paf)
+        #print(idx)
+        #print(paf)
         qries = [p for p in parse_paf_single(paf,idx%cls,cls)]
         if idx % cls == 0:
             ids = len_paf(paf)
@@ -225,7 +235,7 @@ def run(args):
     #statsout.write("F  %d  %d\n" % (nfp, nfn))
 
     print(result)
-    print(np.sum(result,axis=0))
+    print(np.sum(result,axis=1))
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='evaluation of alignment tool')
