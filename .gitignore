@@ -1,9 +1,11 @@
-tmp_out/
+uncalled_input/
 paf/
 paf_edit/
+paf_test/
 paf_uncalled/
 paf_minimap2/
 misc/
 test.py
+fastq_fast/
 
 

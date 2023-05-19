@@ -3,7 +3,7 @@ import glob
 import re
 import subprocess
 
-txt_dir = '/z/kiku/Basecaller/Agn_Multi/tmp_out/'
+txt_dir = '/z/kiku/Basecaller/Agn_Multi/fastq/'
 work_dir = '/z/kiku/Basecaller/Agn_Multi'
 fasta_dir = '/z/kiku/Basecaller/Agn_Multi/fasta/'
 
@@ -28,9 +28,15 @@ def main():
     out_all.sort()
 
     os.chdir('/z/kiku/Basecaller/minimap2')
+    time = 0
     for file,out in zip(txt_files,out_all):
         for idx,fasta in enumerate(fasta_all):
-            subprocess.run(f'./minimap2 --secondary=no --paf-no-hit {fasta_dir}{fasta} {txt_dir}{file} > {work_dir}/paf/{out}_{idx}.paf',shell=True,text=True)
+            output_str = subprocess.run(f'./minimap2 --secondary=no --paf-no-hit {fasta_dir}{fasta} {txt_dir}{file} > {work_dir}/paf_test/{out}_{idx}.paf',shell=True,text=True,capture_output=True)
+            sec = re.search(('Real time: (.*) sec; CPU'),str(output_str)).group(1)
+            print(sec)
+            time += float(sec)
+    
+    print(time)
             
             #print(out.stdout)
         #print(tmp)
